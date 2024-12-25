@@ -1,0 +1,3 @@
+- run servers with client binary
+- expose servers over DNS
+- listen for DNS changes, when the servers change begin the migration
