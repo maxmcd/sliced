@@ -1,12 +1,9 @@
 #![deny(clippy::all)]
 
 mod discovery;
-mod health_check;
-mod selection;
 
 use async_trait::async_trait;
 use discovery::Discovery;
-use health_check::WorkerHealthCheck;
 use log::info;
 use pingora::prelude::Opt;
 use pingora::server::configuration::ServerConf;
@@ -15,15 +12,12 @@ use pingora_core::server::Server;
 use pingora_core::services::background::background_service;
 use pingora_core::upstreams::peer::HttpPeer;
 use pingora_core::Result;
+use pingora_load_balancing::health_check::HttpHealthCheck;
 use pingora_load_balancing::selection::consistent::KetamaHashing;
-use pingora_load_balancing::Backend;
 use pingora_load_balancing::Backends;
 use pingora_load_balancing::LoadBalancer;
 use pingora_proxy::ProxyHttp;
 use pingora_proxy::Session;
-use selection::MemoryAddressSelection;
-use std::collections::BTreeSet;
-use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -78,7 +72,7 @@ fn start_server() {
     let mut upstreams = LoadBalancer::from_backends(Backends::new(discovery));
 
     // Configure HTTP health check
-    let hc = WorkerHealthCheck::new("sliced.local", false);
+    let hc = HttpHealthCheck::new("sliced.local", false);
 
     upstreams.set_health_check(Box::new(hc));
     upstreams.health_check_frequency = Some(Duration::from_secs(1));
@@ -118,31 +112,6 @@ impl ProxyHttp for LB {
         Ctx {}
     }
 
-    /// Handle the incoming request.
-    ///
-    /// In this phase, users can parse, validate, rate limit, perform access control and/or
-    /// return a response for this request.
-    ///
-    /// If the user already sent a response to this request, an `Ok(true)` should be returned so that
-    /// the proxy would exit. The proxy continues to the next phases when `Ok(false)` is returned.
-    ///
-    /// By default this filter does nothing and returns `Ok(false)`.
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
-    where
-        Self::CTX: Send + Sync,
-    {
-        Ok(false)
-    }
-
-    async fn upstream_request_filter(
-        &self,
-        _session: &mut Session,
-        upstream_request: &mut pingora_http::RequestHeader,
-        _ctx: &mut Self::CTX,
-    ) -> Result<()> {
-        Ok(())
-    }
-
     /// Define where the proxy should send the request to.
     ///
     /// The returned [HttpPeer] contains the information regarding where and how this request should
@@ -150,7 +119,7 @@ impl ProxyHttp for LB {
     async fn upstream_peer(
         &self,
         session: &mut Session,
-        ctx: &mut Self::CTX,
+        _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
         let upstream = self
             .upstreams

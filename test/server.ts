@@ -31,7 +31,9 @@ export class Server {
 				if (response.ok) {
 					break;
 				}
-			} catch (e) {}
+			} catch {
+				// Ignore connection errors while server is starting up
+			}
 			if (Date.now() - startTime > 5000) {
 				throw new Error("Server failed to start within 5 seconds");
 			}

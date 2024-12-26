@@ -4,7 +4,7 @@ import { getRandomPort, Server } from "./server.ts";
 
 Deno.test(async function addTest() {
 	const clients = Array.from({ length: 5 }, (_, i) =>
-		Deno.serve({ port: 0 }, (_req) => {
+		Deno.serve({ port: 0, onListen: () => {} }, (_req) => {
 			return Response.json({
 				user: _req.headers.get("x-user"),
 				id: (i + 1).toString(),
@@ -36,7 +36,6 @@ Deno.test(async function addTest() {
 
 	const users = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
 	const ids = await Promise.all(users.map(expectServer));
-	console.log(ids);
 
 	await clients.pop()?.shutdown();
 	updateHosts();
