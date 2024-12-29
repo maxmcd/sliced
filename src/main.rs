@@ -1,6 +1,8 @@
 #![deny(clippy::all)]
 
+mod db;
 mod discovery;
+mod selection;
 
 use async_trait::async_trait;
 use discovery::Discovery;
@@ -13,19 +15,22 @@ use pingora_core::services::background::background_service;
 use pingora_core::upstreams::peer::HttpPeer;
 use pingora_core::Result;
 use pingora_load_balancing::health_check::HttpHealthCheck;
-use pingora_load_balancing::selection::consistent::KetamaHashing;
+// use pingora_load_balancing::selection::consistent::KetamaHashing;
+use crate::db::DB;
 use pingora_load_balancing::Backends;
 use pingora_load_balancing::LoadBalancer;
 use pingora_proxy::ProxyHttp;
 use pingora_proxy::Session;
+use selection::SliceSelection;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub fn main() {
-    start_server();
+#[tokio::main]
+pub async fn main() {
+    start_server().await;
 }
 
-fn start_server() {
+async fn start_server() {
     let mut server = Server::new(Some(Opt {
         upgrade: false,
         daemon: false,
@@ -62,13 +67,14 @@ fn start_server() {
     });
     server.bootstrap();
 
-    let discovery = Box::new(Discovery::new(
-        std::env::args()
-            .nth(2)
-            .expect("DNS Port number required")
-            .parse()
-            .unwrap(),
-    ));
+    let db = DB::new(false).await.unwrap();
+    let dns_port = std::env::args()
+        .nth(2)
+        .expect("DNS Port number required")
+        .parse()
+        .unwrap();
+
+    let discovery = Box::new(Discovery::new(dns_port, db));
     let mut upstreams = LoadBalancer::from_backends(Backends::new(discovery));
 
     // Configure HTTP health check
@@ -98,7 +104,7 @@ fn start_server() {
 }
 
 struct LB {
-    upstreams: Arc<LoadBalancer<KetamaHashing>>,
+    upstreams: Arc<LoadBalancer<SliceSelection>>,
 }
 
 impl LB {}

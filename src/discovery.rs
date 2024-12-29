@@ -1,3 +1,4 @@
+use crate::db::DB;
 use async_trait::async_trait;
 use hickory_resolver::config::NameServerConfigGroup;
 use hickory_resolver::config::ResolverConfig;
@@ -11,11 +12,12 @@ use std::collections::HashMap;
 
 pub struct Discovery {
     port: u16,
+    db: DB,
 }
 
 impl Discovery {
-    pub fn new(port: u16) -> Self {
-        Self { port }
+    pub fn new(port: u16, db: DB) -> Self {
+        Self { port, db }
     }
 }
 
@@ -34,10 +36,20 @@ impl ServiceDiscovery for Discovery {
             ),
             ResolverOpts::default(),
         );
-        let mut backends = BTreeSet::new();
         let response = resolver.txt_lookup("sliced.local.").await.unwrap();
-        for answer in response.iter() {
-            backends.insert(Backend::new(answer.to_string().as_str())?);
+        let (mut assignments, _) = self.db.get_assignments().await.unwrap();
+
+        let assignments_set: BTreeSet<_> =
+            assignments.servers.iter().map(|s| s.to_string()).collect();
+        let backends_set: BTreeSet<_> = response.iter().map(|b| b.to_string()).collect();
+
+        if assignments_set != backends_set {
+            assignments = self.db.new_servers(backends_set).await.unwrap();
+        }
+
+        let mut backends = BTreeSet::new();
+        for server in assignments.servers.iter() {
+            backends.insert(Backend::new(server.to_string().as_str())?);
         }
 
         return Ok((backends, HashMap::new()));
