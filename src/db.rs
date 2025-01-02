@@ -1,14 +1,17 @@
 use pingora_ketama::{Bucket, Continuum};
+use pingora_load_balancing::Backend;
 use std::{collections::BTreeSet, net::SocketAddr};
 
 use libsql::{de, Builder};
+
+use crate::health_check::HealthStatus;
 #[derive(Debug, serde::Deserialize)]
 pub struct SliceServer {
     pub id: i64,
     pub server_id: String,
 }
 
-const NUM_SLICES: u16 = 1000;
+pub const NUM_SLICES: u16 = 100;
 
 const ASSIGNMENTS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS assignments (
@@ -47,6 +50,22 @@ impl SliceAssignments {
             assignments,
         }
     }
+    pub fn to_backends(&self) -> BTreeSet<Backend> {
+        let mut backends = BTreeSet::new();
+        for (i, server) in self.servers.iter().enumerate() {
+            let mut backend = Backend::new(&server.to_string()).unwrap();
+            let mut slices = BTreeSet::new();
+            for (slice_idx, &server_idx) in self.assignments.iter().enumerate() {
+                if server_idx == i {
+                    slices.insert(slice_idx as u16);
+                }
+            }
+            backend.ext.insert(slices);
+            backend.ext.insert(HealthStatus::new());
+            backends.insert(backend);
+        }
+        backends
+    }
 }
 
 fn new_timestamp() -> i64 {
@@ -75,13 +94,15 @@ impl DB {
     pub async fn new_servers(
         &self,
         servers: BTreeSet<String>,
+        version_timestamp: i64,
     ) -> Result<SliceAssignments, libsql::Error> {
         let mut assignments =
             SliceAssignments::new(servers.into_iter().map(|s| s.parse().unwrap()).collect());
 
         let resp = self
-            .write_assignments(&assignments, new_timestamp())
+            .write_assignments(&assignments, version_timestamp)
             .await?;
+
         if !resp.0 {
             // Another server handled the migration, fetch the new assignments.
             assignments = self.get_assignments().await?.0;

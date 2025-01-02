@@ -37,20 +37,19 @@ impl ServiceDiscovery for Discovery {
             ResolverOpts::default(),
         );
         let response = resolver.txt_lookup("sliced.local.").await.unwrap();
-        let (mut assignments, _) = self.db.get_assignments().await.unwrap();
+        let (mut assignments, timestamp) = self.db.get_assignments().await.unwrap();
 
         let assignments_set: BTreeSet<_> =
             assignments.servers.iter().map(|s| s.to_string()).collect();
         let backends_set: BTreeSet<_> = response.iter().map(|b| b.to_string()).collect();
 
         if assignments_set != backends_set {
-            assignments = self.db.new_servers(backends_set).await.unwrap();
+            assignments = self.db.new_servers(backends_set, timestamp).await.unwrap();
         }
 
-        let mut backends = BTreeSet::new();
-        for server in assignments.servers.iter() {
-            backends.insert(Backend::new(server.to_string().as_str())?);
-        }
+        let backends = assignments.to_backends();
+
+        println!("backends: {:?}", backends);
 
         return Ok((backends, HashMap::new()));
     }

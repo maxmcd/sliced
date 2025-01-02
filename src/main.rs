@@ -2,10 +2,14 @@
 
 mod db;
 mod discovery;
+mod health_check;
 mod selection;
 
+use crate::db::DB;
+use crate::discovery::Discovery;
+use crate::health_check::WorkerHealthCheck;
+use crate::selection::SliceSelection;
 use async_trait::async_trait;
-use discovery::Discovery;
 use log::info;
 use pingora::prelude::Opt;
 use pingora::server::configuration::ServerConf;
@@ -14,23 +18,18 @@ use pingora_core::server::Server;
 use pingora_core::services::background::background_service;
 use pingora_core::upstreams::peer::HttpPeer;
 use pingora_core::Result;
-use pingora_load_balancing::health_check::HttpHealthCheck;
-// use pingora_load_balancing::selection::consistent::KetamaHashing;
-use crate::db::DB;
 use pingora_load_balancing::Backends;
 use pingora_load_balancing::LoadBalancer;
 use pingora_proxy::ProxyHttp;
 use pingora_proxy::Session;
-use selection::SliceSelection;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[tokio::main]
-pub async fn main() {
-    start_server().await;
+pub fn main() {
+    start_server();
 }
 
-async fn start_server() {
+fn start_server() {
     let mut server = Server::new(Some(Opt {
         upgrade: false,
         daemon: false,
@@ -45,8 +44,8 @@ async fn start_server() {
         // workers.
         threads: 8,
 
-        pid_file: String::from("/tmp/pingora.pid"),
-        upgrade_sock: String::from("/tmp/pingora_upgrade.sock"),
+        pid_file: String::from(""),
+        upgrade_sock: String::from(""),
 
         // These are all default values.
         version: 1,
@@ -67,7 +66,10 @@ async fn start_server() {
     });
     server.bootstrap();
 
-    let db = DB::new(false).await.unwrap();
+    let db = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(DB::new(false))
+        .unwrap();
     let dns_port = std::env::args()
         .nth(2)
         .expect("DNS Port number required")
@@ -78,7 +80,7 @@ async fn start_server() {
     let mut upstreams = LoadBalancer::from_backends(Backends::new(discovery));
 
     // Configure HTTP health check
-    let hc = HttpHealthCheck::new("sliced.local", false);
+    let hc = WorkerHealthCheck::new("sliced.local", false);
 
     upstreams.set_health_check(Box::new(hc));
     upstreams.health_check_frequency = Some(Duration::from_secs(1));

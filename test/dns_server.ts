@@ -1,5 +1,7 @@
-// @deno-types="npm:@types/dns2"
+import type DNS from "npm:@types/dns2";
+// @ts-types="npm:@types/dns2"
 import dns2 from "npm:dns2";
+import type { EventEmitter } from "npm:@types/node";
 
 // console.log(
 // 	await Deno.resolveDns("google.com", "TXT", {
@@ -29,8 +31,7 @@ export async function newDnsServer(port: number) {
 			}
 			send(response);
 		},
-	});
-
+	}) as ReturnType<typeof DNS.createServer> & EventEmitter;
 	server.on("requestError", console.error);
 	await new Promise<void>((resolve, reject) => {
 		server.on("error", reject);

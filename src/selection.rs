@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
+use crate::db::NUM_SLICES;
+
 pub struct SliceSelection {
     backends: Box<[Backend]>,
 }
@@ -18,12 +20,15 @@ impl BackendSelection for SliceSelection {
     fn iter(self: &Arc<Self>, key: &[u8]) -> Self::Iter {
         let mut state = DefaultHasher::new();
         key.hash(&mut state);
-        let slice: u16 = (state.finish() % 1000) as u16;
+        let slice: u16 = (state.finish() % NUM_SLICES as u64) as u16;
+        if self.backends.is_empty() {
+            return SliceBackendIterator { backend: None };
+        }
         for backend in self.backends.iter() {
             let slices = backend.ext.get::<BTreeSet<u16>>().unwrap();
             if slices.contains(&slice) {
                 return SliceBackendIterator {
-                    backend: backend.clone(),
+                    backend: Some(backend.clone()),
                 };
             }
         }
@@ -31,10 +36,10 @@ impl BackendSelection for SliceSelection {
     }
 }
 pub struct SliceBackendIterator {
-    backend: Backend,
+    backend: Option<Backend>,
 }
 impl BackendIter for SliceBackendIterator {
     fn next(&mut self) -> Option<&Backend> {
-        Some(&self.backend)
+        self.backend.as_ref()
     }
 }
