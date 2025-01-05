@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use crate::db::NUM_SLICES;
+use crate::slice_assignments::NUM_SLICES;
 
 pub struct SliceSelection {
     backends: Box<[Backend]>,

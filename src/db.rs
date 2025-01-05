@@ -1,17 +1,12 @@
-use pingora_ketama::{Bucket, Continuum};
-use pingora_load_balancing::Backend;
-use std::{collections::BTreeSet, net::SocketAddr};
+use crate::slice_assignments::SliceAssignments;
+use libsql::Builder;
+use std::collections::BTreeSet;
 
-use libsql::{de, Builder};
-
-use crate::health_check::HealthStatus;
 #[derive(Debug, serde::Deserialize)]
 pub struct SliceServer {
     pub id: i64,
     pub server_id: String,
 }
-
-pub const NUM_SLICES: u16 = 100;
 
 const ASSIGNMENTS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS assignments (
@@ -22,50 +17,6 @@ CREATE TABLE IF NOT EXISTS assignments (
 
 pub struct DB {
     pub conn: libsql::Connection,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SliceAssignments {
-    pub servers: Vec<SocketAddr>,
-    pub assignments: Vec<usize>,
-}
-
-impl SliceAssignments {
-    pub fn new(servers: Vec<SocketAddr>) -> Self {
-        let mut servers = servers;
-        servers.sort();
-        let buckets: Vec<_> = servers
-            .iter()
-            .filter_map(|s| s.ip().is_ipv4().then_some(Bucket::new(*s, 1)))
-            .collect();
-        let ring = Continuum::new(&buckets);
-        let assignments = (0..NUM_SLICES)
-            .map(|i| {
-                let addr = ring.get_addr(&mut ring.node_idx(&[i as u8])).unwrap();
-                servers.iter().position(|s| s == addr).unwrap()
-            })
-            .collect();
-        Self {
-            servers,
-            assignments,
-        }
-    }
-    pub fn to_backends(&self) -> BTreeSet<Backend> {
-        let mut backends = BTreeSet::new();
-        for (i, server) in self.servers.iter().enumerate() {
-            let mut backend = Backend::new(&server.to_string()).unwrap();
-            let mut slices = BTreeSet::new();
-            for (slice_idx, &server_idx) in self.assignments.iter().enumerate() {
-                if server_idx == i {
-                    slices.insert(slice_idx as u16);
-                }
-            }
-            backend.ext.insert(slices);
-            backend.ext.insert(HealthStatus::new());
-            backends.insert(backend);
-        }
-        backends
-    }
 }
 
 fn new_timestamp() -> i64 {
@@ -145,64 +96,6 @@ impl DB {
             .map_err(|e| libsql::Error::ConnectionFailed(e.to_string()))?;
 
         Ok((assignments, timestamp))
-    }
-}
-
-#[derive(Debug)]
-pub struct ProbeResponse {
-    slice: u16,
-    rif: u32,
-    median_latency: u32,
-    cpu: u32,
-    memory: u32,
-}
-
-// Option 2: Keep fixed time window
-const MAX_HISTORY_AGE_MS: u32 = 1000 * 60 * 10; // 10 minutes
-
-#[derive(Debug, Copy, Clone)]
-pub struct Slice {
-    pub requests_in_flight: [u32; 50],
-    pub latency: [u32; 50],
-    pub cpu: [u32; 50],
-    pub memory: [u32; 50],
-}
-
-#[derive(Debug)]
-pub struct SliceLoad {
-    slices: [Slice; NUM_SLICES as usize],
-}
-
-impl SliceLoad {
-    pub fn new() -> Self {
-        // Initialize array with None values
-        Self {
-            slices: [Slice {
-                requests_in_flight: [0; 50],
-                latency: [0; 50],
-                cpu: [0; 50],
-                memory: [0; 50],
-            }; NUM_SLICES as usize],
-        }
-    }
-
-    fn current_slot() -> usize {
-        let current_time_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u32;
-
-        let slot_duration = MAX_HISTORY_AGE_MS / 50;
-        ((current_time_ms / slot_duration) % 50) as usize
-    }
-
-    pub fn update(&mut self, response: ProbeResponse) {
-        self.slices[response.slice as usize].requests_in_flight[Self::current_slot()] =
-            response.rif;
-        self.slices[response.slice as usize].latency[Self::current_slot()] =
-            response.median_latency;
-        self.slices[response.slice as usize].cpu[Self::current_slot()] = response.cpu;
-        self.slices[response.slice as usize].memory[Self::current_slot()] = response.memory;
     }
 }
 

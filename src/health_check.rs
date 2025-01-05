@@ -98,17 +98,23 @@ fn set_health(target: &Backend, is_healthy: bool, usage: Option<Usage>) {
         .expect("health status not found");
     let mut state = health.inner.write().unwrap();
     state.is_healthy = is_healthy;
-    state.usage = usage;
+    if usage.is_some() {
+        // TODO: Might mean we're dealing with stale data
+        state.usage = usage;
+    }
     state.last_check = std::time::Instant::now();
 }
 
+/// Usage is a map of slice index to a "load" number that can be whatever you
+/// want.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Usage {
     pub slices: HashMap<i32, SliceUsage>,
 }
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct SliceUsage {
-    pub cpu_ms: i32,
+    pub keys: i32,
+    pub load: i32,
 }
 
 #[async_trait]
