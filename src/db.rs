@@ -2,12 +2,6 @@ use crate::slice_assignments::SliceAssignments;
 use libsql::Builder;
 use std::collections::BTreeSet;
 
-#[derive(Debug, serde::Deserialize)]
-pub struct SliceServer {
-    pub id: i64,
-    pub server_id: String,
-}
-
 const ASSIGNMENTS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS assignments (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -42,18 +36,18 @@ impl DB {
         Ok(Self { conn })
     }
 
-    pub async fn new_servers(
+    pub async fn update_servers(
         &self,
         servers: BTreeSet<String>,
-        version_timestamp: i64,
     ) -> Result<SliceAssignments, libsql::Error> {
-        let mut assignments =
-            SliceAssignments::new(servers.into_iter().map(|s| s.parse().unwrap()).collect());
-
-        let resp = self
-            .write_assignments(&assignments, version_timestamp)
-            .await?;
-
+        let (mut assignments, timestamp) = self.get_assignments().await?;
+        let servers: Vec<_> = servers.into_iter().map(|s| s.parse().unwrap()).collect();
+        if assignments.servers.is_empty() {
+            assignments = SliceAssignments::new(servers);
+        } else {
+            assignments.update(servers);
+        }
+        let resp = self.write_assignments(&assignments, timestamp).await?;
         if !resp.0 {
             // Another server handled the migration, fetch the new assignments.
             assignments = self.get_assignments().await?.0;
@@ -81,7 +75,7 @@ impl DB {
         Ok((rows_affected > 0, new_timestamp))
     }
 
-    pub async fn get_assignments(&self) -> Result<(SliceAssignments, i64), libsql::Error> {
+    async fn get_assignments(&self) -> Result<(SliceAssignments, i64), libsql::Error> {
         let mut result = self
             .conn
             .query("SELECT timestamp, data FROM assignments WHERE id = 1", ())
@@ -121,7 +115,7 @@ mod tests {
             "127.0.0.1:8082".parse().unwrap(),
             "127.0.0.1:8083".parse().unwrap(),
         ];
-        let mut assignments = SliceAssignments::new(servers);
+        let assignments = SliceAssignments::new(servers);
         let timestamp = 0;
         // Write assignments
         let (write_success, new_timestamp) = db

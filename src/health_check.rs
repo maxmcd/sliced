@@ -109,12 +109,11 @@ fn set_health(target: &Backend, is_healthy: bool, usage: Option<Usage>) {
 /// want.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct Usage {
-    pub slices: HashMap<i32, SliceUsage>,
+    pub slices: HashMap<u16, SliceUsage>,
 }
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct SliceUsage {
-    pub keys: i32,
-    pub load: i32,
+    pub load: u32,
 }
 
 #[async_trait]

@@ -5,7 +5,6 @@ mod discovery;
 mod health_check;
 mod selection;
 mod slice_assignments;
-
 use crate::db::DB;
 use crate::discovery::Discovery;
 use crate::health_check::WorkerHealthCheck;
